@@ -5,10 +5,17 @@ export default defineConfig({
     "*": "vp check --fix",
   },
   pack: {
+    entry: {
+      index: "src/index.ts",
+      react: "src/react.ts",
+    },
     dts: {
       tsgo: true,
     },
     exports: true,
+    deps: {
+      neverBundle: ["react"],
+    },
   },
   lint: {
     options: {
