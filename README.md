@@ -201,6 +201,50 @@ function PromoteButton() {
 
 The `relay-state/react` entrypoint also re-exports all core functions (`get`, `set`, `del`, `subscribe`, `createStore`, `clear`) and the `RelayStore` type for convenience.
 
+## Best Practices
+
+### Centralize keys as constants
+
+String keys are the contract between micro frontends. A typo in one app silently breaks the connection with another. Keep all shared keys in a single file, published as a shared package or committed to a common location all apps can import from.
+
+```ts
+// packages/shared-keys/index.ts
+export const KEYS = {
+  user: "user",
+  cart: "cart",
+  featureFlags: "feature-flags",
+} as const;
+```
+
+Then import them wherever you use relay-state:
+
+```tsx
+import { KEYS } from "@myorg/shared-keys";
+import { useRelayState, useRelayStateValue } from "relay-state/react";
+
+function Counter() {
+  const [user, setUser] = useRelayState(KEYS.user);
+  // ...
+}
+```
+
+This gives you a single source of truth for the key namespace, makes refactoring safe (rename in one place), and makes it easy to see at a glance what state is shared across your application.
+
+If you are using `createStore` for namespaced stores, the same principle applies -- centralize both the namespace string and the key names:
+
+```ts
+// packages/shared-keys/index.ts
+export const STORES = {
+  appA: "appA",
+  appB: "appB",
+} as const;
+
+export const APP_A_KEYS = {
+  user: "user",
+  settings: "settings",
+} as const;
+```
+
 ## How It Works
 
 1. State is stored in an in-memory `Map` -- fast reads and writes with zero serialization overhead.
