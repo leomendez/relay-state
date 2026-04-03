@@ -23,19 +23,29 @@ npm install relay-state
 ## Quick Start
 
 ```tsx
-import { useRelayState } from "relay-state/react";
-import { set } from "relay-state/react";
+import { useRelayState, useRelayStateValue, useSetRelayState } from "relay-state/react";
 
-// Read and subscribe to shared state in any React micro frontend
-function UserBadge() {
-  const user = useRelayState<{ name: string; role: string }>("user");
-  if (!user) return null;
-  return <span>{user.name} ({user.role})</span>;
+// Tuple API — like useState, but shared across micro frontends
+function Counter() {
+  const [count, setCount] = useRelayState<number>("count", 0);
+  return <button onClick={() => setCount((n) => (n ?? 0) + 1)}>Count: {count}</button>;
 }
 
-// Write from anywhere -- triggers a re-render in all subscribers
-function promoteUser() {
-  set("user", (prev) => ({ ...prev, role: "admin" }));
+// Read-only — re-renders on changes, no setter
+function UserBadge() {
+  const user = useRelayStateValue<{ name: string; role: string }>("user");
+  if (!user) return null;
+  return (
+    <span>
+      {user.name} ({user.role})
+    </span>
+  );
+}
+
+// Write-only — does NOT re-render when state changes
+function PromoteButton() {
+  const setUser = useSetRelayState<{ name: string; role: string }>("user");
+  return <button onClick={() => setUser((u) => ({ ...u, role: "admin" }))}>Promote</button>;
 }
 ```
 
@@ -123,14 +133,8 @@ The interface returned by `createStore`:
 ```ts
 interface RelayStore {
   get: <T = unknown>(key: string) => T | undefined;
-  set: <T = unknown>(
-    key: string,
-    value: T | ((prev: T | undefined) => T),
-  ) => void;
-  subscribe: <T = unknown>(
-    key: string,
-    callback: (value: T | undefined) => void,
-  ) => () => void;
+  set: <T = unknown>(key: string, value: T | ((prev: T | undefined) => T)) => void;
+  subscribe: <T = unknown>(key: string, callback: (value: T | undefined) => void) => () => void;
   del: (key: string) => void;
 }
 ```
@@ -144,25 +148,52 @@ A React hook is available via the `relay-state/react` entrypoint. It uses [`useS
 npm install react
 ```
 
-### `useRelayState<T>(key: string, initialValue?: T): T | undefined`
+### `useRelayState<T>(key, initialValue?) → [value, setter]`
+
+The primary hook. Returns a tuple of the current value and a setter — the same pattern as React's `useState`.
 
 ```tsx
 import { useRelayState } from "relay-state/react";
-import { set } from "relay-state/react"; // core API is re-exported
+
+function Counter() {
+  const [count, setCount] = useRelayState<number>("count", 0);
+  return <button onClick={() => setCount((prev) => (prev ?? 0) + 1)}>Count: {count}</button>;
+}
+```
+
+The setter accepts either a direct value or an updater function:
+
+```ts
+setCount(10);
+setCount((prev) => (prev ?? 0) + 1);
+```
+
+### `useRelayStateValue<T>(key, initialValue?) → value`
+
+Subscribes to a key and returns only the current value. Use this when a component needs to read state but never write it.
+
+```tsx
+import { useRelayStateValue } from "relay-state/react";
 
 function UserBadge() {
-  const user = useRelayState<{ name: string }>("user");
-
-  if (!user) return <span>Loading...</span>;
+  const user = useRelayStateValue<{ name: string }>("user");
+  if (!user) return null;
   return <span>{user.name}</span>;
 }
+```
 
-// With a default value
-function Counter() {
-  const count = useRelayState<number>("count", 0);
+### `useSetRelayState<T>(key) → setter`
+
+Returns a stable setter function without subscribing to state changes. Components using only this hook will **not re-render** when the value changes — the key performance primitive for write-only components.
+
+```tsx
+import { useSetRelayState } from "relay-state/react";
+
+function PromoteButton() {
+  const setUser = useSetRelayState<{ name: string; role: string }>("user");
   return (
-    <button onClick={() => set<number>("count", (prev) => (prev ?? 0) + 1)}>
-      Count: {count}
+    <button onClick={() => setUser((prev) => ({ ...prev, role: "admin" }))}>
+      Promote to Admin
     </button>
   );
 }
