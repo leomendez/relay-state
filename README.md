@@ -17,7 +17,14 @@ Common workarounds -- module federation, custom event buses cobbled together per
 ## Install
 
 ```bash
+# pnpm
+pnpm add relay-state
+
+# npm
 npm install relay-state
+
+# Vite+
+vp add relay-state
 ```
 
 ## Quick Start
@@ -75,7 +82,7 @@ set<number>("count", (prev) => (prev ?? 0) + 1);
 
 ### `subscribe<T>(key: string, callback: (value: T | undefined) => void): () => void`
 
-Subscribes to changes for a specific key. The callback fires whenever `set` or `del` is called for that key. Returns an unsubscribe function.
+Subscribes to changes for a specific key. The callback fires whenever `set` or `del` is called for that key, including updates originating from other micro frontend bundles. Returns an unsubscribe function.
 
 ```ts
 const unsubscribe = subscribe<number>("count", (value) => {
@@ -98,7 +105,7 @@ del("count");
 
 ### `clear(): void`
 
-Removes all keys from the store. Does not dispatch events -- this is a hard reset, useful for testing or hot reload cleanup.
+Removes all keys from the store and notifies all active subscribers with `undefined`. Use this for logout flows or full application resets.
 
 ```ts
 clear();
@@ -124,7 +131,7 @@ appB.get("user"); // { name: "Maria" }
 // No collision -- these are stored as "appA:user" and "appB:user"
 ```
 
-A namespaced store returns an object with `get`, `set`, `subscribe`, and `del` -- the same API as the global functions.
+A namespaced store returns an object with `get`, `set`, `subscribe`, `del`, and `clear` -- the same API as the global functions, scoped to the namespace.
 
 ### `RelayStore` (type)
 
@@ -136,6 +143,7 @@ interface RelayStore {
   set: <T = unknown>(key: string, value: T | ((prev: T | undefined) => T)) => void;
   subscribe: <T = unknown>(key: string, callback: (value: T | undefined) => void) => () => void;
   del: (key: string) => void;
+  clear: () => void;
 }
 ```
 
@@ -143,10 +151,9 @@ interface RelayStore {
 
 A React hook is available via the `relay-state/react` entrypoint. It uses [`useSyncExternalStore`](https://react.dev/reference/react/useSyncExternalStore) under the hood, so your components re-render automatically when shared state changes.
 
-```bash
-# React 18+ is required as a peer dependency
-npm install react
-```
+React 18+ is a peer dependency. If it isn't already installed in your project:
+
+> **SSR note:** relay-state is browser-only. It requires `window` at runtime. During server-side rendering, hooks will return `undefined` (or `initialValue` if provided) and no subscriptions are registered.
 
 ### `useRelayState<T>(key, initialValue?) → [value, setter]`
 
@@ -167,6 +174,8 @@ The setter accepts either a direct value or an updater function:
 setCount(10);
 setCount((prev) => (prev ?? 0) + 1);
 ```
+
+When `initialValue` is provided and the key is currently unset, the value is written to the store on first mount so all consumers see the same default — regardless of which micro frontend mounts first.
 
 ### `useRelayStateValue<T>(key, initialValue?) → value`
 
@@ -249,10 +258,75 @@ export const APP_A_KEYS = {
 
 1. State is stored in an in-memory `Map` -- fast reads and writes with zero serialization overhead.
 2. Every `set` and `del` call dispatches a [`CustomEvent`](https://developer.mozilla.org/en-US/docs/Web/API/CustomEvent) on `window` with the event name `relay-state:{key}`.
-3. `subscribe` listens for these events using `window.addEventListener`.
+3. `subscribe` listens for these events using `window.addEventListener`. When an event arrives, it updates the local cache before calling the callback -- so `get()` always reflects the latest value, even if the event originated from a different bundle.
 4. `useRelayState` wires `subscribe` and `get` into React's `useSyncExternalStore`, so components re-render automatically.
 
 Because events go through `window`, the underlying mechanism is framework-agnostic -- any script on the same page can listen. However, relay-state is designed and tested for React. Use in other frameworks is theoretically possible but unsupported.
+
+## Deploying Across Micro Frontends
+
+relay-state works with independently bundled micro frontends — each app can include its own copy of the library. Updates propagate via `window` CustomEvents, and each bundle's local cache stays in sync when it receives an event.
+
+### single-spa
+
+Each micro frontend installs relay-state as a normal dependency. No special configuration is required:
+
+```bash
+# pnpm
+pnpm add relay-state
+
+# npm
+npm install relay-state
+
+# Vite+
+vp add relay-state
+```
+
+State written by one app is broadcast via `window` events and received by all other apps that have subscribed to the same key, regardless of which bundle they loaded relay-state from.
+
+**Optional: share a single instance via import maps**
+
+If you want all micro frontends to share one bundle of relay-state (slightly more efficient, one fewer module to download), you can register it as a shared dependency in your import map:
+
+```json
+{
+  "imports": {
+    "relay-state": "https://cdn.example.com/relay-state@0.1.0/index.mjs",
+    "relay-state/react": "https://cdn.example.com/relay-state@0.1.0/react.mjs"
+  }
+}
+```
+
+Then each micro frontend imports relay-state normally -- the browser resolves it to the shared CDN bundle instead of a local copy. With a shared instance, all apps also share the in-memory cache directly (not just via events), which eliminates any edge cases where a consumer reads `get()` before subscribing.
+
+## Future Ideas
+
+These features are planned but not yet implemented:
+
+**Atom-level defaults.** Today, `initialValue` is set per hook call. A future API would let you define the key, type, and default value together as an atom -- similar to Jotai -- so the default is co-located with the key definition and shared across all consumers automatically:
+
+```ts
+// future API (not yet implemented)
+const countAtom = atom<number>("count", 0);
+
+function Counter() {
+  const [count, setCount] = useRelayState(countAtom);
+  // count is always number, never undefined
+}
+```
+
+**Typed store.** A `createTypedStore` API that encodes the full key-to-type map at the store level, giving compile-time safety without a separate constants file:
+
+```ts
+// future API (not yet implemented)
+const store = createTypedStore<{
+  user: { name: string; role: string };
+  count: number;
+}>("appA");
+
+store.set("user", { name: "Leo", role: "admin" }); // fully typed
+store.set("typo", 1); // TypeScript error
+```
 
 ## Not the Right Fit?
 
