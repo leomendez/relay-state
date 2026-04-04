@@ -2,7 +2,7 @@
 
 import { act, renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, test } from "vite-plus/test";
-import { clear, del, set } from "../src/index.ts";
+import { clear, del, get, set } from "../src/index.ts";
 import { useRelayState, useRelayStateValue, useSetRelayState } from "../src/react.ts";
 
 beforeEach(() => {
@@ -93,6 +93,40 @@ describe("useRelayState (tuple)", () => {
     const [, setter2] = result.current;
 
     expect(setter1).toBe(setter2);
+  });
+
+  test("initialValue is written to the store", () => {
+    renderHook(() => useRelayState("init-key", "default"));
+    expect(get("init-key")).toBe("default");
+  });
+
+  test("second consumer without initialValue sees the first consumer's default", () => {
+    renderHook(() => useRelayState("shared-key", "first-default"));
+    const { result } = renderHook(() => useRelayState<string>("shared-key"));
+    expect(result.current[0]).toBe("first-default");
+  });
+
+  test("re-renders when clear is called", () => {
+    set("clear-key", "value");
+    const { result } = renderHook(() => useRelayState("clear-key"));
+    expect(result.current[0]).toBe("value");
+
+    act(() => {
+      clear();
+    });
+    expect(result.current[0]).toBeUndefined();
+  });
+
+  test("re-renders from external CustomEvent", () => {
+    const { result } = renderHook(() => useRelayState<string>("ext-key"));
+    expect(result.current[0]).toBeUndefined();
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent("relay-state:ext-key", { detail: { value: "external" } }),
+      );
+    });
+    expect(result.current[0]).toBe("external");
   });
 });
 

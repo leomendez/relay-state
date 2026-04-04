@@ -36,6 +36,18 @@ describe("CRUD", () => {
     expect(get("a")).toBeUndefined();
     expect(get("b")).toBeUndefined();
   });
+
+  test("clear dispatches events for all active keys", () => {
+    const cbA = vi.fn();
+    const cbB = vi.fn();
+    set("a", 1);
+    set("b", 2);
+    subscribe("a", cbA);
+    subscribe("b", cbB);
+    clear();
+    expect(cbA).toHaveBeenCalledWith(undefined);
+    expect(cbB).toHaveBeenCalledWith(undefined);
+  });
 });
 
 describe("updater functions", () => {
@@ -120,6 +132,19 @@ describe("CustomEvent integration", () => {
     window.dispatchEvent(new CustomEvent("relay-state:ext", { detail: { value: "external" } }));
     expect(cb).toHaveBeenCalledWith("external");
   });
+
+  test("external CustomEvent updates the cache", () => {
+    subscribe("ext", () => {});
+    window.dispatchEvent(new CustomEvent("relay-state:ext", { detail: { value: "synced" } }));
+    expect(get("ext")).toBe("synced");
+  });
+
+  test("external CustomEvent with undefined deletes from cache", () => {
+    set("ext", "value");
+    subscribe("ext", () => {});
+    window.dispatchEvent(new CustomEvent("relay-state:ext", { detail: { value: undefined } }));
+    expect(get("ext")).toBeUndefined();
+  });
 });
 
 describe("namespaces", () => {
@@ -157,6 +182,27 @@ describe("namespaces", () => {
     store.set("key", "value");
     store.del("key");
     expect(get("appA:key")).toBeUndefined();
+  });
+
+  test("namespaced clear removes only keys with that prefix", () => {
+    const storeA = createStore("appA");
+    const storeB = createStore("appB");
+    storeA.set("x", 1);
+    storeA.set("y", 2);
+    storeB.set("x", 3);
+    storeA.clear();
+    expect(get("appA:x")).toBeUndefined();
+    expect(get("appA:y")).toBeUndefined();
+    expect(get("appB:x")).toBe(3);
+  });
+
+  test("namespaced clear dispatches events for removed keys", () => {
+    const store = createStore("appA");
+    store.set("key", "value");
+    const cb = vi.fn();
+    store.subscribe("key", cb);
+    store.clear();
+    expect(cb).toHaveBeenCalledWith(undefined);
   });
 });
 

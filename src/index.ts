@@ -23,7 +23,13 @@ export function subscribe<T = unknown>(
   callback: (value: T | undefined) => void,
 ): () => void {
   const listener = (event: Event) => {
-    callback((event as CustomEvent).detail.value as T | undefined);
+    const val = (event as CustomEvent).detail.value as T | undefined;
+    if (val === undefined) {
+      cache.delete(key);
+    } else {
+      cache.set(key, val);
+    }
+    callback(val);
   };
   window.addEventListener(`${EVENT_PREFIX}${key}`, listener);
   return () => {
@@ -37,6 +43,9 @@ export function del(key: string): void {
 }
 
 export function clear(): void {
+  for (const key of cache.keys()) {
+    dispatch(key, undefined);
+  }
   cache.clear();
 }
 
@@ -45,6 +54,7 @@ export interface RelayStore {
   set: <T = unknown>(key: string, value: T | ((prev: T | undefined) => T)) => void;
   subscribe: <T = unknown>(key: string, callback: (value: T | undefined) => void) => () => void;
   del: (key: string) => void;
+  clear: () => void;
 }
 
 export function createStore(namespace: string): RelayStore {
@@ -56,5 +66,12 @@ export function createStore(namespace: string): RelayStore {
     subscribe: <T = unknown>(key: string, callback: (value: T | undefined) => void) =>
       subscribe<T>(prefix(key), callback),
     del: (key: string) => del(prefix(key)),
+    clear: () => {
+      for (const key of cache.keys()) {
+        if (key.startsWith(`${namespace}:`)) {
+          del(key);
+        }
+      }
+    },
   };
 }

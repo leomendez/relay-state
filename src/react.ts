@@ -1,9 +1,16 @@
-import { useCallback, useSyncExternalStore } from "react";
+import { useCallback, useRef, useSyncExternalStore } from "react";
 import { get, set, subscribe } from "./index.ts";
 
 export type Setter<T> = (value: T | ((prev: T | undefined) => T)) => void;
 
 export function useRelayStateValue<T = unknown>(key: string, initialValue?: T): T | undefined {
+  const initKeyRef = useRef<string | null>(null);
+  if (initKeyRef.current !== key) {
+    initKeyRef.current = key;
+    if (initialValue !== undefined && get(key) === undefined) {
+      set(key, initialValue);
+    }
+  }
   const value = useSyncExternalStore(
     (cb) => subscribe(key, cb),
     () => get<T>(key),
