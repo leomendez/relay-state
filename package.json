@@ -1,6 +1,6 @@
 {
   "name": "relay-state",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Framework-agnostic shared state store for micro frontends, powered by window events and an in-memory cache.",
   "homepage": "https://github.com/leomendez/relay-state#readme",
   "bugs": {
