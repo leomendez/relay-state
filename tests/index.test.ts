@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { beforeEach, describe, expect, test, vi } from "vite-plus/test";
-import { clear, createStore, del, DELETED, get, set, subscribe } from "../src/index.ts";
+import { clear, createStore, del, DELETED, get, has, set, subscribe } from "../src/index.ts";
 
 beforeEach(() => {
   clear();
@@ -27,6 +27,26 @@ describe("CRUD", () => {
     set("key", "value");
     del("key");
     expect(get("key")).toBeUndefined();
+  });
+
+  test("has returns true for existing key", () => {
+    set("key", "value");
+    expect(has("key")).toBe(true);
+  });
+
+  test("has returns false for non-existent key", () => {
+    expect(has("missing")).toBe(false);
+  });
+
+  test("has returns true when value is undefined", () => {
+    set("key", undefined);
+    expect(has("key")).toBe(true);
+  });
+
+  test("has returns false after del", () => {
+    set("key", "value");
+    del("key");
+    expect(has("key")).toBe(false);
   });
 
   test("clear empties all state", () => {
@@ -194,6 +214,13 @@ describe("namespaces", () => {
     expect(storeB.get("count")).toBe(2);
   });
 
+  test("namespaced has checks prefixed key", () => {
+    const store = createStore("appA");
+    store.set("key", "value");
+    expect(store.has("key")).toBe(true);
+    expect(store.has("missing")).toBe(false);
+  });
+
   test("namespaced del removes the prefixed key", () => {
     const store = createStore("appA");
     store.set("key", "value");
@@ -339,7 +366,8 @@ describe("replay on subscribe", () => {
 });
 
 describe("debug mode", () => {
-  test("window.__RELAY_STATE__ exposes the cache", () => {
+  test("window.__RELAY_STATE__ is exposed in dev mode", () => {
+    // Vitest runs with import.meta.env.DEV = true
     expect((window as any).__RELAY_STATE__).toBeDefined();
     expect((window as any).__RELAY_STATE__.cache).toBeInstanceOf(Map);
   });

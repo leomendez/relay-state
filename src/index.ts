@@ -16,6 +16,11 @@ export function get<T = unknown>(key: string): T | undefined {
   return cache.get(key) as T | undefined;
 }
 
+/** Returns `true` if the key exists in the store, even if its value is `undefined`. */
+export function has(key: string): boolean {
+  return cache.has(key);
+}
+
 /**
  * Sets a value in the store and dispatches a `CustomEvent` on `window` to notify all subscribers.
  * Accepts either a direct value or an updater function that receives the previous value.
@@ -86,6 +91,7 @@ export function clear(): void {
 /** The interface returned by `createStore`. */
 export interface RelayStore {
   get: <T = unknown>(key: string) => T | undefined;
+  has: (key: string) => boolean;
   set: <T = unknown>(key: string, value: T | ((prev: T | undefined) => T)) => void;
   subscribe: <T = unknown>(key: string, callback: (value: T | undefined) => void) => () => void;
   del: (key: string) => void;
@@ -103,23 +109,27 @@ export interface RelayStore {
  */
 export function createStore(namespace: string): RelayStore {
   const prefix = (key: string) => `${namespace}:${key}`;
+  const keys = new Set<string>();
   return {
     get: <T = unknown>(key: string) => get<T>(prefix(key)),
-    set: <T = unknown>(key: string, value: T | ((prev: T | undefined) => T)) =>
-      set<T>(prefix(key), value),
+    has: (key: string) => has(prefix(key)),
+    set: <T = unknown>(key: string, value: T | ((prev: T | undefined) => T)) => {
+      keys.add(key);
+      set<T>(prefix(key), value);
+    },
     subscribe: <T = unknown>(key: string, callback: (value: T | undefined) => void) =>
       subscribe<T>(prefix(key), callback),
-    del: (key: string) => del(prefix(key)),
+    del: (key: string) => {
+      keys.delete(key);
+      del(prefix(key));
+    },
     clear: () => {
-      for (const key of Array.from(cache.keys())) {
-        if (key.startsWith(`${namespace}:`)) {
-          del(key);
-        }
-      }
+      for (const key of keys) del(prefix(key));
+      keys.clear();
     },
   };
 }
 
-if (typeof window !== "undefined") {
+if (typeof window !== "undefined" && (import.meta as any).env?.DEV) {
   (window as any).__RELAY_STATE__ = { cache };
 }

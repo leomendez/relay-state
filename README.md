@@ -1,6 +1,6 @@
 # relay-state
 
-> Shared state for micro frontends, designed for React.
+> Shared state for micro frontends, designed for React. Client-side only.
 
 [![CI](https://github.com/leomendez/relay-state/actions/workflows/ci.yml/badge.svg)](https://github.com/leomendez/relay-state/actions/workflows/ci.yml)
 [![npm](https://img.shields.io/npm/v/relay-state)](https://www.npmjs.com/package/relay-state)
@@ -64,6 +64,16 @@ Returns the current value for a key, or `undefined` if the key has not been set.
 
 ```ts
 const count = get<number>("count"); // number | undefined
+```
+
+### `has(key: string): boolean`
+
+Returns `true` if the key exists in the store, even if its value is `undefined`. Useful for distinguishing between "key was set to `undefined`" and "key was never set."
+
+```ts
+set("key", undefined);
+has("key"); // true
+has("other"); // false
 ```
 
 ### `set<T>(key: string, value: T | ((prev: T | undefined) => T)): void`
@@ -131,7 +141,7 @@ appB.get("user"); // { name: "Maria" }
 // No collision -- these are stored as "appA:user" and "appB:user"
 ```
 
-A namespaced store returns an object with `get`, `set`, `subscribe`, `del`, and `clear` -- the same API as the global functions, scoped to the namespace.
+A namespaced store returns an object with `get`, `has`, `set`, `subscribe`, `del`, and `clear` -- the same API as the global functions, scoped to the namespace.
 
 ### `RelayStore` (type)
 
@@ -140,6 +150,7 @@ The interface returned by `createStore`:
 ```ts
 interface RelayStore {
   get: <T = unknown>(key: string) => T | undefined;
+  has: (key: string) => boolean;
   set: <T = unknown>(key: string, value: T | ((prev: T | undefined) => T)) => void;
   subscribe: <T = unknown>(key: string, callback: (value: T | undefined) => void) => () => void;
   del: (key: string) => void;
@@ -151,9 +162,9 @@ interface RelayStore {
 
 A React hook is available via the `relay-state/react` entrypoint. It uses [`useSyncExternalStore`](https://react.dev/reference/react/useSyncExternalStore) under the hood, so your components re-render automatically when shared state changes.
 
-React 18+ is a peer dependency. If it isn't already installed in your project:
+React 18+ is a peer dependency.
 
-> **SSR note:** relay-state is browser-only. It requires `window` at runtime. During server-side rendering, hooks will return `undefined` (or `initialValue` if provided) and no subscriptions are registered.
+> **Note:** relay-state is client-side only. It requires `window` at runtime and is not designed for server-side rendering.
 
 ### `useRelayState<T>(key, initialValue?) → [value, setter]`
 
@@ -208,7 +219,7 @@ function PromoteButton() {
 }
 ```
 
-The `relay-state/react` entrypoint also re-exports all core functions (`get`, `set`, `del`, `subscribe`, `createStore`, `clear`) and the `RelayStore` type for convenience.
+The `relay-state/react` entrypoint also re-exports all core functions (`get`, `has`, `set`, `del`, `subscribe`, `createStore`, `clear`) and the `RelayStore` type for convenience.
 
 ## Best Practices
 
