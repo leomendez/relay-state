@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { beforeEach, describe, expect, test, vi } from "vite-plus/test";
-import { clear, createStore, del, get, set, subscribe } from "../src/index.ts";
+import { clear, createStore, del, DELETED, get, set, subscribe } from "../src/index.ts";
 
 beforeEach(() => {
   clear();
@@ -44,9 +44,12 @@ describe("CRUD", () => {
     set("b", 2);
     subscribe("a", cbA);
     subscribe("b", cbB);
+    // Replay fires once per subscriber, then clear fires once per subscriber
     clear();
-    expect(cbA).toHaveBeenCalledWith(undefined);
-    expect(cbB).toHaveBeenCalledWith(undefined);
+    expect(cbA).toHaveBeenLastCalledWith(undefined);
+    expect(cbB).toHaveBeenLastCalledWith(undefined);
+    expect(cbA).toHaveBeenCalledTimes(2);
+    expect(cbB).toHaveBeenCalledTimes(2);
   });
 });
 
@@ -75,8 +78,10 @@ describe("subscriptions", () => {
     set("key", "value");
     const cb = vi.fn();
     subscribe("key", cb);
+    // cb fires once from replay with "value", then once from del with undefined
     del("key");
-    expect(cb).toHaveBeenCalledWith(undefined);
+    expect(cb).toHaveBeenCalledTimes(2);
+    expect(cb).toHaveBeenLastCalledWith(undefined);
   });
 
   test("unsubscribe stops callback from firing", () => {
@@ -95,6 +100,9 @@ describe("subscriptions", () => {
     set("key", "value");
     expect(cb1).toHaveBeenCalledWith("value");
     expect(cb2).toHaveBeenCalledWith("value");
+    // Each subscriber fires once (no replay since key was unset when subscribing)
+    expect(cb1).toHaveBeenCalledTimes(1);
+    expect(cb2).toHaveBeenCalledTimes(1);
   });
 
   test("subscriber on key a does not fire when key b changes", () => {
@@ -116,13 +124,13 @@ describe("CustomEvent integration", () => {
     window.removeEventListener("relay-state:key", cb);
   });
 
-  test("del dispatches CustomEvent with undefined detail", () => {
+  test("del dispatches CustomEvent with DELETED sentinel", () => {
     const cb = vi.fn();
     window.addEventListener("relay-state:key", cb);
     set("key", "value");
     del("key");
     const event = cb.mock.calls[1][0] as CustomEvent;
-    expect(event.detail).toEqual({ value: undefined });
+    expect(event.detail).toEqual({ value: DELETED });
     window.removeEventListener("relay-state:key", cb);
   });
 
@@ -139,10 +147,17 @@ describe("CustomEvent integration", () => {
     expect(get("ext")).toBe("synced");
   });
 
-  test("external CustomEvent with undefined deletes from cache", () => {
+  test("external CustomEvent with undefined stores undefined (does not delete)", () => {
     set("ext", "value");
     subscribe("ext", () => {});
     window.dispatchEvent(new CustomEvent("relay-state:ext", { detail: { value: undefined } }));
+    expect(get("ext")).toBeUndefined();
+  });
+
+  test("external CustomEvent with DELETED sentinel deletes from cache", () => {
+    set("ext", "value");
+    subscribe("ext", () => {});
+    window.dispatchEvent(new CustomEvent("relay-state:ext", { detail: { value: DELETED } }));
     expect(get("ext")).toBeUndefined();
   });
 });
@@ -165,6 +180,8 @@ describe("namespaces", () => {
     const cb = vi.fn();
     store.subscribe("user", cb);
     set("appA:user", "updated");
+    // No replay (key unset when subscribing), fires once from set
+    expect(cb).toHaveBeenCalledTimes(1);
     expect(cb).toHaveBeenCalledWith("updated");
   });
 
@@ -201,8 +218,10 @@ describe("namespaces", () => {
     store.set("key", "value");
     const cb = vi.fn();
     store.subscribe("key", cb);
+    // Replay fires with "value", then clear fires with undefined
     store.clear();
-    expect(cb).toHaveBeenCalledWith(undefined);
+    expect(cb).toHaveBeenCalledTimes(2);
+    expect(cb).toHaveBeenLastCalledWith(undefined);
   });
 });
 
@@ -225,5 +244,111 @@ describe("useSyncExternalStore compatibility", () => {
     set("ref", obj);
     expect(get("ref")).toBe(obj);
     expect(get("ref")).toBe(obj);
+  });
+});
+
+describe("equality check (Object.is)", () => {
+  test("setting the same primitive twice fires subscriber once", () => {
+    const cb = vi.fn();
+    subscribe("key", cb);
+    set("key", "same");
+    set("key", "same");
+    expect(cb).toHaveBeenCalledTimes(1);
+  });
+
+  test("NaN equals NaN — subscriber fires once", () => {
+    const cb = vi.fn();
+    subscribe("key", cb);
+    set("key", NaN);
+    set("key", NaN);
+    expect(cb).toHaveBeenCalledTimes(1);
+  });
+
+  test("0 and -0 are not equal — subscriber fires twice", () => {
+    const cb = vi.fn();
+    subscribe("key", cb);
+    set("key", 0);
+    set("key", -0);
+    expect(cb).toHaveBeenCalledTimes(2);
+  });
+
+  test("same object reference twice fires subscriber once", () => {
+    const obj = { x: 1 };
+    const cb = vi.fn();
+    subscribe("key", cb);
+    set("key", obj);
+    set("key", obj);
+    expect(cb).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("undefined as a value", () => {
+  test("set(key, undefined) stores undefined without deleting", () => {
+    set("key", undefined);
+    // get returns undefined, but the key exists in the store
+    expect(get("key")).toBeUndefined();
+    // Subscribing replays the value, proving the key is present
+    const cb = vi.fn();
+    subscribe("key", cb);
+    expect(cb).toHaveBeenCalledWith(undefined);
+  });
+
+  test("del removes a key that was set to undefined", () => {
+    set("key", undefined);
+    del("key");
+    // After del, subscribing should NOT replay (key is gone)
+    const cb = vi.fn();
+    subscribe("key", cb);
+    expect(cb).not.toHaveBeenCalled();
+  });
+
+  test("subscriber receives undefined from set and from del", () => {
+    const cb = vi.fn();
+    subscribe("key", cb);
+    set("key", undefined);
+    expect(cb).toHaveBeenCalledWith(undefined);
+    del("key");
+    // Second call: del also delivers undefined via the DELETED sentinel
+    expect(cb).toHaveBeenCalledTimes(2);
+    expect(cb).toHaveBeenLastCalledWith(undefined);
+  });
+});
+
+describe("replay on subscribe", () => {
+  test("subscriber receives current value immediately when key exists", () => {
+    set("key", "hello");
+    const cb = vi.fn();
+    subscribe("key", cb);
+    expect(cb).toHaveBeenCalledTimes(1);
+    expect(cb).toHaveBeenCalledWith("hello");
+  });
+
+  test("subscriber does not fire immediately when key is unset", () => {
+    const cb = vi.fn();
+    subscribe("missing", cb);
+    expect(cb).not.toHaveBeenCalled();
+  });
+
+  test("subscriber replays undefined when key was set to undefined", () => {
+    set("key", undefined);
+    const cb = vi.fn();
+    subscribe("key", cb);
+    expect(cb).toHaveBeenCalledTimes(1);
+    expect(cb).toHaveBeenCalledWith(undefined);
+  });
+});
+
+describe("debug mode", () => {
+  test("window.__RELAY_STATE__ exposes the cache", () => {
+    expect((window as any).__RELAY_STATE__).toBeDefined();
+    expect((window as any).__RELAY_STATE__.cache).toBeInstanceOf(Map);
+  });
+
+  test("exposed cache reflects live state", () => {
+    const liveCache = (window as any).__RELAY_STATE__.cache as Map<string, unknown>;
+    set("debug-key", "value");
+    expect(liveCache.get("debug-key")).toBe("value");
+    del("debug-key");
+    expect(liveCache.has("debug-key")).toBe(false);
   });
 });

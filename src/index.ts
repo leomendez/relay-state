@@ -1,6 +1,12 @@
 const cache = new Map<string, unknown>();
 const EVENT_PREFIX = "relay-state:";
 
+/**
+ * Sentinel value dispatched by `del` and `clear` to distinguish deletion from storing `undefined`.
+ * Uses `Symbol.for` so the sentinel is shared across independently bundled copies.
+ */
+export const DELETED = Symbol.for("relay-state:deleted");
+
 function dispatch(key: string, value: unknown): void {
   window.dispatchEvent(new CustomEvent(`${EVENT_PREFIX}${key}`, { detail: { value } }));
 }
@@ -22,6 +28,7 @@ export function set<T = unknown>(key: string, value: T | ((prev: T | undefined) 
     typeof value === "function"
       ? (value as (prev: T | undefined) => T)(cache.get(key) as T | undefined)
       : value;
+  if (cache.has(key) && Object.is(cache.get(key), resolved)) return;
   cache.set(key, resolved);
   dispatch(key, resolved);
 }
@@ -38,15 +45,23 @@ export function subscribe<T = unknown>(
   callback: (value: T | undefined) => void,
 ): () => void {
   const listener = (event: Event) => {
-    const val = (event as CustomEvent).detail.value as T | undefined;
-    if (val === undefined) {
+    const val = (event as CustomEvent).detail.value;
+    if (val === DELETED) {
       cache.delete(key);
+      callback(undefined as T | undefined);
     } else {
-      cache.set(key, val);
+      if (!cache.has(key) || !Object.is(cache.get(key), val)) {
+        cache.set(key, val);
+      }
+      callback(val as T | undefined);
     }
-    callback(val);
   };
   window.addEventListener(`${EVENT_PREFIX}${key}`, listener);
+
+  if (cache.has(key)) {
+    callback(cache.get(key) as T | undefined);
+  }
+
   return () => {
     window.removeEventListener(`${EVENT_PREFIX}${key}`, listener);
   };
@@ -55,7 +70,7 @@ export function subscribe<T = unknown>(
 /** Deletes a key from the store and notifies subscribers with `undefined`. */
 export function del(key: string): void {
   cache.delete(key);
-  dispatch(key, undefined);
+  dispatch(key, DELETED);
 }
 
 /**
@@ -63,10 +78,9 @@ export function del(key: string): void {
  * Useful for logout flows or full application resets.
  */
 export function clear(): void {
-  for (const key of cache.keys()) {
-    dispatch(key, undefined);
+  for (const key of Array.from(cache.keys())) {
+    del(key);
   }
-  cache.clear();
 }
 
 /** The interface returned by `createStore`. */
@@ -97,11 +111,15 @@ export function createStore(namespace: string): RelayStore {
       subscribe<T>(prefix(key), callback),
     del: (key: string) => del(prefix(key)),
     clear: () => {
-      for (const key of cache.keys()) {
+      for (const key of Array.from(cache.keys())) {
         if (key.startsWith(`${namespace}:`)) {
           del(key);
         }
       }
     },
   };
+}
+
+if (typeof window !== "undefined") {
+  (window as any).__RELAY_STATE__ = { cache };
 }

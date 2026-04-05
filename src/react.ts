@@ -50,5 +50,5 @@ export function useRelayState<T = unknown>(
   return [useRelayStateValue<T>(key, initialValue), useSetRelayState<T>(key)];
 }
 
-export { clear, createStore, del, get, set, subscribe } from "./index.ts";
+export { clear, createStore, del, DELETED, get, set, subscribe } from "./index.ts";
 export type { RelayStore } from "./index.ts";

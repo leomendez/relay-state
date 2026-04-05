@@ -169,6 +169,17 @@ describe("useRelayStateValue", () => {
   });
 });
 
+describe("replay across components", () => {
+  test("late-mounting component sees value set before it subscribed", () => {
+    // Component A sets a value
+    set("shared", "from-A");
+
+    // Component B mounts later and reads the same key without initialValue
+    const { result } = renderHook(() => useRelayStateValue<string>("shared"));
+    expect(result.current).toBe("from-A");
+  });
+});
+
 describe("useSetRelayState", () => {
   test("returns a function", () => {
     const { result } = renderHook(() => useSetRelayState("key"));
